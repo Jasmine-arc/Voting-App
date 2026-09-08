@@ -1,0 +1,9 @@
+user.email=isaiahgenesis20@gmail.com
+user.user=Learnuel1
+user.name=Jasmine-arc
+filter.lfs.smudge=git-lfs smudge -- %f
+filter.lfs.process=git-lfs filter-process
+filter.lfs.required=true
+filter.lfs.clean=git-lfs clean -- %f
+http.postbuffer=524288000
+http.version=HTTP/1.1
