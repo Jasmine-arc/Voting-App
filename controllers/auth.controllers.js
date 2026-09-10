@@ -5,7 +5,8 @@ const { buildResponse } = require("../utils/builder");
 const filePath = path.join(__dirname, "../", "accounts.json")
 const jwt = require("jsonwebtoken");
 const { CONFIG } = require("../config/env");
-const { findByEmail, create } = require("../services/account.service");
+const { findByEmail, create, findByRefreshToken } = require("../services/account.service");
+const AccountModel = require("../model/account.model");
 
 const register = async (req, res) => {
     try {
@@ -68,7 +69,7 @@ const register = async (req, res) => {
         // res.status(200).json({
         //     message: "Registration Sucessful"
         // })
-        res.status(200).json({message: "Registration Sucessful"})
+        res.status(200).json({ message: "Registration Sucessful" })
     } catch (error) {
         res.status(400).json({ error: error.message || "An error occured" })
     }
@@ -190,10 +191,10 @@ const login = async (req, res) => {
         if (!email.includes("@")) throw new Error("Email is invaild")
 
         if (password.length < 8 || password === "") throw new Error("Password must be at least 8 characters")
-        if (password.length > 15) throw new Error("Password must not be more than 15 characters")
+        if (password.length > 50) throw new Error("Password must not be more than 15 characters")
 
 
-            let token = req?.cookies?.voTin_ex
+        let token = req?.cookies?.voTin_ex
         if (!token) token = req?.headers?.authorization?.split(' ')[1];
         if (!token) token = req.headers.cookie?.split("=")[1];
         if (token) return res.status(401).json({ msg: "You're already logged in" })
@@ -238,7 +239,7 @@ const login = async (req, res) => {
 }
 
 
-const logout = (req, res) => {
+const logout = async (req, res) => {
     try {
         let token = req?.cookies?.voTin_ex
         if (!token) token = req?.headers?.authorization?.split(' ')[1];
@@ -250,17 +251,11 @@ const logout = (req, res) => {
 
         if (!verify) return res.status(401).json({ message: "Generate new Access Token" })
 
-        const data = readFile(filePath);
-        if (!data) throw new Error("No record found")
-        const userExist = data.find(x => x.email.toLowerCase() === verify.email.toLowerCase());
-        const others = data.filter(x => x.email.toLowerCase() === verify.email.toLowerCase());
-
+        const userExist = await AccountModel.findById(verify._id)
+        if (!userExist) throw new Error("Account does not exist");
         if (userExist?.refreshToken) {
-            delete userExist.refreshToken;
-            others.push(userExist)
+            userExist.refreshToken = "";
 
-            const save = fs.writeFileSync(filePath, JSON.stringify(others), "utf-8")
-            if (save) throw new Error(save)
             res.clearCookie("voTin_ex")
 
         } else throw new Error({ message: "You have to log in first..." })
