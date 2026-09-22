@@ -1,0 +1,24 @@
+meta {
+  name: UpdatePasword
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/update
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "currentPassword": "jklmnsa22",
+    "newPassword": "justmeandyou",
+    "confirmPassword": "justmeandyou"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

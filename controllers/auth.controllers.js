@@ -1,12 +1,14 @@
 const { hashSync, compareSync } = require("bcrypt");
 const fs = require("fs");
 const path = require("path");
+const jwt = require("jsonwebtoken");
+const mongose = require("mongoose")
 const { buildResponse } = require("../utils/builder");
 const filePath = path.join(__dirname, "../", "accounts.json")
-const jwt = require("jsonwebtoken");
 const { CONFIG } = require("../config/env");
-const { findByEmail, create, findByRefreshToken } = require("../services/account.service");
+const { findByEmail, create, findByRefreshToken, findUsers } = require("../services/account.service");
 const AccountModel = require("../model/account.model");
+const { log } = require("console");
 
 const register = async (req, res) => {
     try {
@@ -78,8 +80,6 @@ const register = async (req, res) => {
 
 // create a forget password route
 
-
-
 const forgotPassword = (req, res) => {
     try {
         const email = req.body.email
@@ -98,36 +98,19 @@ const forgotPassword = (req, res) => {
 };
 
 
-const getAccounts = (req, res) => {
+const getAccounts = async (req, res) => {
     try {
         const { search } = req.query
-        const resData = [];
 
-        if (fs.existsSync(filePath)) {
-            let data = fs.readFileSync(filePath, "utf-8");
-            data = JSON.parse(data);
-            if (data.length === 0) return res.status(404).json({ error: "No record Found" });
+        const result = await findUsers(search);
+        console.log(result);
 
-            if (search) {
-                const findUser = data.find(x => x.email.toLowerCase() === search.toLowerCase()
-                    || x.firstname.toLowerCase() === search || x.lastname.toLowerCase() === search)
-                if (!findUser) throw new Error("No record Found")
-                const found = buildResponse(findUser)
-                return res.status(200).json({ message: "Found", data: found })
-            }
+        if (!result) throw new Error("No accounts")
+        if (result?.error) throw new Error(result.error);
 
-            data.forEach((cur) => {
-                resData.push(buildResponse(cur))
-            });
-
-            res.status(200).json({ message: "Found", data: resData })
-        } else {
-            res.status(404).json({ error: "No account" })
-        }
+        return res.status(200).json({ msg: "Account Found ", data: result })
 
     } catch (error) {
-        console.log(error);
-
         res.status(400).json({ error: error.message || "An error occured" })
     }
 }
@@ -201,6 +184,7 @@ const login = async (req, res) => {
 
         const userExist = await findByEmail(email)
         if (!userExist) throw new Error("Account does not exist");
+        if (userExist?.error) throw new error(userExist.error)
 
         if (!compareSync(password, userExist.password)) throw new Error("Incorrect Password")
 
@@ -213,8 +197,8 @@ const login = async (req, res) => {
 
 
         //sign token
-        const accessToken = jwt.sign(payLoad, CONFIG.ACCESS_TOKEN_SECRET, { expiresIn: "1m" });
-        const refreshToken = jwt.sign(payLoad, CONFIG.REFRESH_TOKEN_SECRET, { expiresIn: "2m" })
+        const accessToken = jwt.sign(payLoad, CONFIG.ACCESS_TOKEN_SECRET, { expiresIn: "10m" });
+        const refreshToken = jwt.sign(payLoad, CONFIG.REFRESH_TOKEN_SECRET, { expiresIn: "20m" })
         userExist.refreshToken = refreshToken;
         userExist.save();
 
@@ -229,7 +213,8 @@ const login = async (req, res) => {
         res.status(200).json({
             message: "Login Sucessful",
             data: userData,
-            token: accessToken, refreshToken
+            token: accessToken,
+            refreshToken
         })
 
     } catch (error) {
@@ -251,11 +236,14 @@ const logout = async (req, res) => {
 
         if (!verify) return res.status(401).json({ message: "Generate new Access Token" })
 
-        const userExist = await AccountModel.findById(verify._id)
+        const userExist = await AccountModel.findById(verify.id)
         if (!userExist) throw new Error("Account does not exist");
         if (userExist?.refreshToken) {
             userExist.refreshToken = "";
-
+            await AccountModel.findOneAndUpdate(
+                { _id: userExist._id },
+                { $set: { refreshToken: "" } }
+            )
             res.clearCookie("voTin_ex")
 
         } else throw new Error({ message: "You have to log in first..." })
@@ -317,7 +305,7 @@ const refreshToken = async (req, res) => {
                 email: userExist.email,
                 type: userExist.type
             }
-            const accessToken = jwt.sign(payload, CONFIG.ACCESS_TOKEN_SECRET, { expiresIn: "1m" })
+            const accessToken = jwt.sign(payload, CONFIG.ACCESS_TOKEN_SECRET, { expiresIn: "2m" })
             res.clearCookie("voTin_ex");
             res.cookie("voTin_ex", accessToken, {
                 httpOnly: false,
@@ -359,6 +347,67 @@ const check = (req, res) => {
     }
 }
 
+const updatePassword = async (req, res) => {
+    try {
+        const password = req.body.password;
+        const confirmpassword = req.body.confirmpassword;
+
+        if (!password) throw new Error("Password is required")
+        if (password.length < 8) throw new Error("Password must be at least 8 characters")
+
+        if (!password || password === null) {
+            throw new Error("Password field must not be empty or set to null");
+        }
+
+        if (password.length < 8) {
+            throw new Error("Password must be at least 8 characters");
+        }
+
+        if (password !== confirmpassword) {
+            throw new Error("Password does not match");
+        }
+
+        let token = req?.cookies?.voTin_ex;
+
+        if (!token) {
+            const authHeader = req?.headers?.authorization;
+            if (authHeader && authHeader.startsWith("Bearer ")) {
+                token = authHeader.split(" ")[1];
+            }
+        }
+        if (!token && req?.headers?.cookie) {
+            const cookieString = req.headers.cookie;
+            const cookie = cookieString.split(";").find((item) => item.trim().startsWith("voTin_ex="));
+            if (cookie) token = cookie.split("=")[1];
+        }
+
+        if (!token) {
+            return res.status(401).json({ msg: "Authentication token is required" });
+        }
+
+        const verify = jwt.verify(token, CONFIG.ACCESS_TOKEN_SECRET);
+        if (!verify?.id) throw new Error("No such user found");
+
+        const userExist = await AccountModel.findById(verify.id);
+        if (!userExist) throw new Error("Account does not exist");
+
+        userExist.password = hashSync(password, 10);
+        await userExist.save();
+
+        return res.status(200).json({ msg: "Password was updated successfully" });
+    } catch (error) {
+        if (error.name === "TokenExpiredError") {
+            return res.status(401).json({ msg: "Expired token" });
+        }
+
+        if (error.name === "JsonWebTokenError") {
+            return res.status(401).json({ msg: "Invalid token" });
+        }
+
+        return res.status(400).json({ error: error.message || "An error occured" });
+    }
+}; 
+
 module.exports = {
     register,
     login,
@@ -367,6 +416,7 @@ module.exports = {
     deleteAcc,
     logout,
     refreshToken,
-    check
+    check,
+    updatePassword
 }
 

@@ -1,0 +1,22 @@
+meta {
+  name: RefreshToken
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/refresh
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhYWE3ODVhMGFjMjM4NDZjZ…"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
